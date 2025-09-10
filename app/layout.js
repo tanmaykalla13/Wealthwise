@@ -36,7 +36,7 @@ export default function RootLayout({ children }) {
                 <p>
                   Crafted with care by{" "}
                   <a
-                    href="https://github.com/tanmaydhelia"
+                    href="https://github.com/tanmaykalla"
                     target="_blank"
                     rel="noopener noreferrer"
                     title="Visit my GitHub"

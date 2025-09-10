@@ -5,6 +5,8 @@ import { auth } from "@clerk/nextjs/server";
 import { revalidatePath } from "next/cache";
 
 export async function getCurrentBudget(accountId) {
+  console.log('here');
+
   try {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
