@@ -12,7 +12,7 @@ const nextConfig = {
 
   experimental: {
     serverActions: {
-      bodySizeLimit: "5mb",
+      bodySizeLimit: "50mb", // Increased to handle file uploads and receipt scanning
     },
   },
 };

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useCallback } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
-import { CalendarIcon, Loader2 } from "lucide-react";
+import { CalendarIcon, Loader2, AlertCircle } from "lucide-react";
 import { format } from "date-fns";
 import { useRouter, useSearchParams } from "next/navigation";
 import useFetch from "@/hooks/use-fetch";
@@ -54,47 +54,88 @@ export function AddTransactionForm({
     defaultValues:
       editMode && initialData
         ? {
-            type: initialData.type,
-            amount: initialData.amount.toString(),
-            description: initialData.description,
-            accountId: initialData.accountId,
-            category: initialData.category,
-            date: new Date(initialData.date),
-            isRecurring: initialData.isRecurring,
-            ...(initialData.recurringInterval && {
-              recurringInterval: initialData.recurringInterval,
-            }),
-          }
+          type: initialData.type,
+          amount: initialData.amount.toString(),
+          description: initialData.description,
+          accountId: initialData.accountId,
+          category: initialData.category,
+          date: new Date(initialData.date),
+          isRecurring: initialData.isRecurring,
+          ...(initialData.recurringInterval && {
+            recurringInterval: initialData.recurringInterval,
+          }),
+        }
         : {
-            type: "EXPENSE",
-            amount: "",
-            description: "",
-            accountId: accounts.find((ac) => ac.isDefault)?.id,
-            date: new Date(),
-            isRecurring: false,
-          },
+          type: "EXPENSE",
+          amount: "",
+          description: "",
+          accountId: accounts.find((ac) => ac.isDefault)?.id,
+          date: new Date(),
+          isRecurring: false,
+        },
   });
 
   const {
     loading: transactionLoading,
     fn: transactionFn,
     data: transactionResult,
+    error: transactionError,
   } = useFetch(editMode ? updateTransaction : createTransaction);
 
-  const onSubmit = (data) => {
-    const formData = {
-      ...data,
-      amount: parseFloat(data.amount),
-    };
+  const onSubmit = async (data) => {
+    try {
+      console.log("Form submitted with data:", {
+        type: data.type,
+        amount: data.amount,
+        accountId: data.accountId,
+        category: data.category,
+        description: data.description?.substring?.(0, 50),
+      });
 
-    if (editMode) {
-      transactionFn(editId, formData);
-    } else {
-      transactionFn(formData);
+      // Validate critical fields
+      if (!data.type) {
+        toast.error("Transaction type is required");
+        return;
+      }
+
+      if (!data.amount || parseFloat(data.amount) <= 0) {
+        toast.error("Amount must be greater than 0");
+        return;
+      }
+
+      if (!data.accountId) {
+        toast.error("Please select an account");
+        return;
+      }
+
+      if (!data.category) {
+        toast.error("Please select a category");
+        return;
+      }
+
+      const formData = {
+        type: data.type,
+        amount: parseFloat(data.amount),
+        accountId: data.accountId,
+        category: data.category,
+        description: data.description || "",
+        date: data.date || new Date(),
+        isRecurring: data.isRecurring || false,
+        recurringInterval: data.recurringInterval || null,
+      };
+
+      if (editMode) {
+        await transactionFn(editId, formData);
+      } else {
+        await transactionFn(formData);
+      }
+    } catch (err) {
+      console.error("Form submission error:", err);
+      toast.error(err?.message || "Failed to process transaction");
     }
   };
 
-  const handleScanComplete = (scannedData) => {
+  const handleScanComplete = useCallback((scannedData) => {
     if (scannedData) {
       setValue("amount", scannedData.amount.toString());
       setValue("date", new Date(scannedData.date));
@@ -104,9 +145,8 @@ export function AddTransactionForm({
       if (scannedData.category) {
         setValue("category", scannedData.category);
       }
-      toast.success("Receipt scanned successfully");
     }
-  };
+  }, [setValue]);
 
   useEffect(() => {
     if (transactionResult?.success && !transactionLoading) {
@@ -116,9 +156,12 @@ export function AddTransactionForm({
           : "Transaction created successfully"
       );
       reset();
-      router.push(`/account/${transactionResult.data.accountId}`);
+      // Small delay to ensure UI updates before navigation
+      setTimeout(() => {
+        router.push(`/account/${transactionResult.data.accountId}`);
+      }, 500);
     }
-  }, [transactionResult, transactionLoading, editMode]);
+  }, [transactionResult?.success, transactionLoading, editMode, reset, router]);
 
   const type = watch("type");
   const isRecurring = watch("isRecurring");
@@ -130,6 +173,17 @@ export function AddTransactionForm({
 
   return (
     <form onSubmit={handleSubmit(onSubmit)} className="space-y-6">
+      {/* Error Display */}
+      {transactionError && (
+        <div className="flex gap-3 p-4 bg-red-50 border border-red-200 rounded-lg">
+          <AlertCircle className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+          <div className="flex-1">
+            <h3 className="font-semibold text-red-900">Error creating transaction</h3>
+            <p className="text-sm text-red-700 mt-1">{transactionError?.message || "An unexpected error occurred"}</p>
+          </div>
+        </div>
+      )}
+
       {/* Receipt Scanner - Only show in create mode */}
       {!editMode && <ReceiptScanner onScanComplete={handleScanComplete} />}
 

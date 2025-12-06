@@ -15,8 +15,15 @@ const useFetch = (cb) => {
       setData(response);
       setError(null);
     } catch (error) {
+      const errorMessage = error?.message || "An unexpected error occurred";
       setError(error);
-      toast.error(error.message);
+      console.error("useFetch error:", {
+        message: errorMessage,
+        error: error,
+      });
+      toast.error(errorMessage, {
+        duration: 5000,
+      });
     } finally {
       setLoading(false);
     }

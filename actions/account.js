@@ -19,13 +19,17 @@ export async function getAccountWithTransactions(accountId) {
   const { userId } = await auth();
   if (!userId) throw new Error("Unauthorized");
 
-  const user = await db.user.findUnique({
+  // clerkUserId is a unique field on the User model, but Prisma's findUnique
+  // requires the exact unique field name. Using findFirst with where ensures
+  // correct lookup across environments and avoids using composite where shapes.
+  const user = await db.user.findFirst({
     where: { clerkUserId: userId },
   });
 
   if (!user) throw new Error("User not found");
 
-  const account = await db.account.findUnique({
+  // Use findFirst to locate an account that matches both id and userId.
+  const account = await db.account.findFirst({
     where: {
       id: accountId,
       userId: user.id,
@@ -53,7 +57,7 @@ export async function bulkDeleteTransactions(transactionIds) {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
 
-    const user = await db.user.findUnique({
+    const user = await db.user.findFirst({
       where: { clerkUserId: userId },
     });
 
@@ -68,11 +72,17 @@ export async function bulkDeleteTransactions(transactionIds) {
     });
 
     // Group transactions by account to update balances
+    // Prisma returns Decimal objects for numeric fields. Keep them as-is for
+    // Prisma increment operations. We'll accumulate Decimal-like values using
+    // JavaScript numbers when possible, but prefer the raw Decimal from Prisma
+    // by using toNumber() only for local arithmetic. If Decimal isn't available
+    // (e.g., in mocks), fall back to Number().
     const accountBalanceChanges = transactions.reduce((acc, transaction) => {
-      const change =
-        transaction.type === "EXPENSE"
-          ? transaction.amount
-          : -transaction.amount;
+      const amt = transaction.amount && typeof transaction.amount.toNumber === 'function'
+        ? transaction.amount.toNumber()
+        : Number(transaction.amount || 0);
+
+      const change = transaction.type === "EXPENSE" ? amt : -amt;
       acc[transaction.accountId] = (acc[transaction.accountId] || 0) + change;
       return acc;
     }, {});
@@ -116,7 +126,7 @@ export async function updateDefaultAccount(accountId) {
     const { userId } = await auth();
     if (!userId) throw new Error("Unauthorized");
 
-    const user = await db.user.findUnique({
+    const user = await db.user.findFirst({
       where: { clerkUserId: userId },
     });
 
@@ -124,7 +134,7 @@ export async function updateDefaultAccount(accountId) {
       throw new Error("User not found");
     }
 
-    // First, unset any existing default account
+    // First, unset any existing default account for the user
     await db.account.updateMany({
       where: {
         userId: user.id,
@@ -133,8 +143,8 @@ export async function updateDefaultAccount(accountId) {
       data: { isDefault: false },
     });
 
-    // Then set the new default account
-    const account = await db.account.update({
+    // Then set the new default account (ensure the account belongs to the user)
+    const account = await db.account.updateMany({
       where: {
         id: accountId,
         userId: user.id,
@@ -143,7 +153,9 @@ export async function updateDefaultAccount(accountId) {
     });
 
     revalidatePath("/dashboard");
-    return { success: true, data: serializeTransaction(account) };
+    // updateMany returns a BatchPayload; refetch the account to return its data
+    const updated = await db.account.findUnique({ where: { id: accountId } });
+    return { success: true, data: updated ? serializeDecimal(updated) : null };
   } catch (error) {
     return { success: false, error: error.message };
   }
